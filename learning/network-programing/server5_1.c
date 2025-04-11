@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
         connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
         if (childpid = fork() == 0) {
             close(listenfd);
-
+            str_echo(connfd);
         }
         close(connfd);
     }
