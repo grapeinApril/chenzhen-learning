@@ -12,6 +12,7 @@
     if (ht == NULL) {
         return NULL;
     }
+    
     ht->table = (raft_node_t **)raft_malloc(size * sizeof(raft_node_t *));
     ht->size = size;
     return ht;
@@ -27,7 +28,7 @@ unsigned int raf_hash(const raft_node_t *node, int size) {
 
 void raft_hash_insert(raft_hash_t *ht, raft_node_t *key, raft_group_member_t *value) {
     unsigned int index = raf_hash(key->value, ht->size);
-    raft_node_t *new_node = (raft_node_t *)raft_malloc(sizeof(raft_node_t));
+    raft_hash_node_t *new_node = (raft_hash_node_t *)raft_malloc(sizeof(raft_hash_node_t));
     new_node->key = key;
     new_node->value = value;
     new_node->next = ht->table[index];
@@ -36,7 +37,7 @@ void raft_hash_insert(raft_hash_t *ht, raft_node_t *key, raft_group_member_t *va
 
 raft_group_member_t *raft_hash_find(raft_hash_t *ht, raft_node_t *key) {
     unsigned int index = hash_function(key->value, ht->size);
-    raft_node_t *current = ht->table[index];
+    raft_hash_node_t *current = ht->table[index];
     while (current != NULL) {
         if (strcmp(current->key->value, key->value) == 0 && strlen(current->key->value) == strlen(key->value)) {
             return &(current->value);
@@ -48,8 +49,8 @@ raft_group_member_t *raft_hash_find(raft_hash_t *ht, raft_node_t *key) {
 
 void raft_hash_delete(raft_hash_t *ht, raft_node_t *key) {
     unsigned int index = hash_function(key->value, ht->size);
-    raft_node_t *current = ht->table[index];
-    raft_node_t *prev = NULL;
+    raft_hash_node_t *current = ht->table[index];
+    raft_hash_node_t *prev = NULL;
     while (current != NULL) {
         if (strcmp(current->key->value, key->value) == 0) {
             if (prev == NULL) {
@@ -67,9 +68,9 @@ void raft_hash_delete(raft_hash_t *ht, raft_node_t *key) {
 
 void raft_free_hash_table(raft_hash_t *ht) {
     for (int i = 0; i < ht->size; i++) {
-        raft_node_t *current = ht->table[i];
+        raft_hash_node_t *current = ht->table[i];
         while (current != NULL) {
-            raft_node_t *temp = current;
+            raft_hash_node_t *temp = current;
             current = current->next;
             free(temp);
         }

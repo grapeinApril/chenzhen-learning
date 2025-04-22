@@ -2,14 +2,14 @@
 #define RAFT_HASH_H
 #include "raft_comon.h"
 
-typedef struct hash_node_s {
+typedef struct hash_hash_node_s {
     raft_node_t *key;
     raft_group_member_t *value;
     struct hash_node_t *next;
-} raft_node_t;
+} raft_hash_node_t;
 
 typedef struct raft_hash_s {
-    raft_node_t **table;
+    raft_hash_node_t **table;
     int size;
 } raft_hash_t;
 
