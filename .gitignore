@@ -1,0 +1,8 @@
+# 编译生成的文件
+*.o
+*.out
+*.exe
+*.so
+*.a
+*.dll
+.vscode/
