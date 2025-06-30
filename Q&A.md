@@ -132,3 +132,125 @@ MTU（最大传输单元）会因网络类型不同而有所差异，常见网�
 Wi-Fi：默认 MTU 通常为 2304 字节。
 PPP（点对点协议）：标准 MTU 值是 1492 字节。
 千兆以太网和巨帧：可支持高达 9000 字节的 MTU，不过这属于非标准的超大 MTU 设置，且需要设备支持。
+
+在对一个HTTP服务器进行基准测试的时候，由一台计算机产生流量向HTTP服务器发起连接，但是由于连接速度过快，导致该计算机处于time_wait状态的连接过大，导致与服务器建立连接失败，性能急剧下降。应该如何解决？
+在基准测试中，客户端因大量TIME_WAIT连接导致连接失败和性能下降，核心原因是本地端口资源耗尽（每个 TCP 连接需占用一个本地端口）或系统连接表项被占满。解决需从减少TIME_WAIT产生、加速TIME_WAIT释放、优化连接复用三个维度入手，结合系统配置、协议优化和测试工具调整综合处理。
+一、系统内核参数调优（Linux 环境）
+通过调整内核参数，减少TIME_WAIT对资源的占用，加速其回收复用。
+1. 允许复用TIME_WAIT状态的端口
+net.ipv4.tcp_tw_reuse：允许将处于TIME_WAIT状态的端口重新用于新的 TCP 连接（仅适用于客户端，且需满足序列号合法性）。
+
+bash
+# 临时生效
+sysctl -w net.ipv4.tcp_tw_reuse=1
+# 永久生效（写入/etc/sysctl.conf）
+echo "net.ipv4.tcp_tw_reuse=1" >> /etc/sysctl.conf
+sysctl -p
+
+注意：仅对客户端有效（主动发起连接的一方），服务器端启用可能有风险。
+2. 缩短TIME_WAIT的超时时间
+net.ipv4.tcp_fin_timeout：控制TIME_WAIT状态的持续时间（默认 60 秒，基于 2 倍 MSL，MSL 通常为 30 秒）。适当缩短可加速端口释放（需谨慎，过短可能导致旧数据包干扰新连接）。
+
+bash
+# 临时生效（例如缩短至30秒）
+sysctl -w net.ipv4.tcp_fin_timeout=30
+# 永久生效
+echo "net.ipv4.tcp_fin_timeout=30" >> /etc/sysctl.conf
+sysctl -p
+3. 扩大本地端口范围
+net.ipv4.ip_local_port_range：默认本地端口范围较小（如 32768-60999，约 2.8 万个端口），大量并发连接会快速耗尽。扩大范围可增加可用端口数。
+
+bash
+# 临时生效（扩大至1024-65535，需确保权限允许）
+sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+# 永久生效
+echo "net.ipv4.ip_local_port_range=1024 65535" >> /etc/sysctl.conf
+sysctl -p
+4. 调整TIME_WAIT连接的最大数量
+net.ipv4.tcp_max_tw_buckets：系统允许的最大TIME_WAIT连接数（默认约 18 万）。若超过此值，新的TIME_WAIT连接会被直接销毁（可能导致连接异常）。可适当提高，但需注意内存占用。
+
+bash
+sysctl -w net.ipv4.tcp_max_tw_buckets=500000  # 示例值，根据内存调整
+二、HTTP 协议层优化：启用长连接与连接复用
+通过减少 TCP 连接的创建 / 关闭频率，从根源上降低TIME_WAIT的产生。
+1. 强制启用 HTTP 长连接（Keep-Alive）
+HTTP/1.0：需显式在请求头中添加Connection: keep-alive，服务器响应也需包含该字段，才能复用连接。
+HTTP/1.1：默认启用长连接，无需显式声明，但可通过Connection: close关闭。
+
+效果：一个 TCP 连接可处理多个 HTTP 请求，减少连接关闭次数，从而减少TIME_WAIT。
+
+测试工具配置：
+
+若使用ab（Apache Bench），添加-k参数启用长连接：
+bash
+ab -n 10000 -c 100 -k http://server:port/path  # -k：启用Keep-Alive
+
+若使用wrk或locust，确保工具默认启用长连接（通常遵循 HTTP/1.1 默认行为）。
+2. 优化长连接参数（服务器端）
+服务器需配置合理的长连接超时时间和最大请求数，避免连接过早关闭或过久闲置：
+
+Nginx：
+nginx
+http {
+  keepalive_timeout 60s;  # 长连接超时时间（无请求60秒后关闭）
+  keepalive_requests 1000;  # 一个连接最多处理1000个请求后关闭
+}
+
+Apache：
+apache
+KeepAlive On
+KeepAliveTimeout 60
+MaxKeepAliveRequests 1000
+
+
+目的：平衡连接复用率和资源占用，避免连接闲置过久导致资源浪费，或请求数过少导致频繁重建连接。
+3. 升级至 HTTP/2 或 HTTP/3
+HTTP/2：通过多路复用（一个 TCP 连接上并发处理多个请求），进一步减少连接数，且连接管理由协议隐式处理，几乎不产生TIME_WAIT。
+HTTP/3：基于 QUIC 协议（UDP 之上），连接建立 / 关闭机制更高效，无TIME_WAIT问题。
+
+测试工具：确保工具支持 HTTP/2（如wrk2、k6），并指定协议版本：
+
+bash
+wrk -t 4 -c 100 -d 30s --latency https://server:port  # 若服务器支持HTTP/2，wrk会自动协商
+三、基准测试工具与策略调整
+1. 控制并发连接数（-c参数）
+避免瞬间发起过多并发连接，导致短时间内大量连接关闭，堆积TIME_WAIT。
+
+逐步增加并发数（如从 10→50→100），观察TIME_WAIT增长趋势，找到系统可承受的阈值。
+若需高并发，可分散流量到多台客户端机器（分布式测试），避免单台机器端口耗尽。
+2. 减少主动关闭连接的场景
+TIME_WAIT由主动关闭连接的一方产生。若客户端作为主动关闭方（如测试工具在请求完成后主动断开），可调整服务器为主动关闭方（通过keepalive_requests限制最大请求数，让服务器在处理完请求后关闭连接），此时TIME_WAIT会转移到服务器端，但需确保服务器有足够资源处理。
+四、应用层（测试工具）优化
+若测试工具为自研，可通过以下 socket 选项减少TIME_WAIT影响：
+1. 设置SO_REUSEADDR选项
+允许端口在TIME_WAIT状态时被重新绑定（需在创建 socket 时设置）：
+
+c
+int opt = 1;
+setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+
+效果：即使端口处于TIME_WAIT，也可被新连接复用（需配合内核tcp_tw_reuse参数）。
+2. 控制连接关闭策略
+避免频繁主动关闭连接，尽量复用现有长连接，仅在必要时（如连接数超限）关闭。
+总结：解决步骤优先级
+优先启用长连接（-k参数），从根源减少连接关闭次数。
+调整内核参数（tcp_tw_reuse、ip_local_port_range），缓解端口耗尽和TIME_WAIT堆积。
+优化服务器长连接配置，提高连接复用率。
+升级至 HTTP/2，彻底减少连接数。
+分散测试流量（多客户端），避免单台机器资源瓶颈。
+
+通过以上组合策略，可显著降低TIME_WAIT对基准测试的影响，确保测试结果反映服务器真实性能。
+
+当代理服务器收到客户端的 HTTP 请求中包含无法理解的首部字段时，其行为需遵循 HTTP 协议规范（如 RFC 7230、RFC 7231 等），核心原则是 **“容错性” 与 “最小干预”**，具体行为如下：
+1. 忽略无法理解的首部字段，继续转发请求
+对于代理服务器无法识别的非标准首部（如自定义首部，或未被代理实现的标准首部），协议要求代理服务器不得修改或删除这些字段，而是直接将其原样转发给后端服务器。
+原因：HTTP 允许扩展首部（如以X-为前缀的自定义字段），代理的职责是转发请求而非验证首部的 “合法性”，忽略未知首部可保证客户端与服务器之间的通信不受中间代理的限制。
+
+长连接是连接复用的必要条件，连接复用是长连接的主要应用形式
+
+https://blog.csdn.net/qq_62311779/article/details/139910673
+HTTP3 QUIC
+
+https://cloud.tencent.com/developer/article/1907246
+HTTP2.0
