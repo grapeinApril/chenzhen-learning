@@ -256,3 +256,31 @@ https://cloud.tencent.com/developer/article/1907246
 HTTP2.0
 
 忽略DPDK相关内容
+
+API（应用程序编程接口）和 URL（统一资源定位符）是两个不同维度的概念，前者是交互规则，后者是资源地址，二者的核心区别、关系及典型场景如下：
+一、核心定义与区别
+维度	API（Application Programming Interface）	URL（Uniform Resource Locator）
+本质	一套定义软件组件（如前后端、服务间）如何交互的规则 / 协议，规定了请求格式、数据结构、认证方式等。	互联网上资源的唯一地址，用于定位网络资源（如网页、图片、接口端点等），是 URI 的子集。
+作用	实现不同系统间的数据交换或功能调用（如 “用户登录”“获取订单列表”）。	标识资源的网络位置，让客户端能找到并访问该资源（如 “访问某网页”“调用某 API 的端点”）。
+形式	无固定格式，可基于 HTTP、TCP、WebSocket 等协议，表现为接口文档、函数定义、协议规范等。	有固定格式（如http://domain/path?query），包含协议、域名、路径、参数等部分。
+举例	- 微信支付 API（规定了如何调用支付接口、参数格式）
+- RESTful API 规范（规定了用 HTTP 方法 + URL 表示资源操作）	- https://api.example.com/users（某 API 的端点地址）
+- https://www.baidu.com（网页地址）
+二、二者的关系
+URL 是 API 在HTTP 场景下的常见载体，但并非 API 的全部：
+
+多数 API 通过 URL 暴露端点：
+当 API 基于 HTTP 协议（如 RESTful API、GraphQL API）时，客户端需通过特定 URL（如https://api.example.com/v1/users）访问 API 的 “端点”（Endpoint），此时 URL 是调用 API 的 “入口地址”。
+API 包含比 URL 更多的内容：
+例如，一个 “用户查询 API” 不仅需要 URL（/users），还包括：
+请求方法（GET）、参数（?id=123）；
+响应格式（JSON）、状态码（200/404）；
+认证方式（Token 在 Header 中）等规则。
+这些都是 API 的一部分，而 URL 仅负责定位这个端点。
+非 HTTP API 可能不依赖 URL：
+如基于 TCP 的内部服务 API、操作系统的系统调用 API（如 C 语言的printf函数），这类 API 无需 URL，直接通过函数名、端口等方式交互。
+三、总结
+URL 是 “地址”：用于定位网络资源（包括 API 的端点），是访问资源的 “门牌号”。
+API 是 “规则”：定义了如何通过这个 “门牌号” 与资源交互（如 “进门后说什么、做什么、得到什么”）。
+
+简单说：URL 可以是 API 的 “访问地址”，但 API 的范围远大于 URL。
